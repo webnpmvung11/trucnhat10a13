@@ -24,18 +24,20 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    // Hàm xử lý chung khi có thông tin người dùng
-    const handleUserLogin = async (user: any) => {
-      try {
-        await syncUserRole(user);
-        if (isMounted) {
-          setCurrentUser(user);
-        }
-      } catch (err) {
-        console.error('[App] Lỗi đồng bộ vai trò:', err);
-      }
-    };
-
+   // Hàm xử lý chung khi có thông tin người dùng
+const handleUserLogin = async (user: any) => {
+  // 1. Lưu thông tin đăng nhập ngay lập tức để không bị đẩy ra ngoài
+  if (isMounted) {
+    setCurrentUser(user);
+  }
+  
+  // 2. Đồng bộ vai trò sau
+  try {
+    await syncUserRole(user);
+  } catch (err) {
+    console.error('[App] Lỗi đồng bộ vai trò:', err);
+  }
+};
     // 1. Kiểm tra kết quả sau khi đăng nhập chuyển hướng Google (signInWithRedirect)
     getRedirectResult(auth)
       .then(async (result) => {
