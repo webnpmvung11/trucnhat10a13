@@ -23,10 +23,6 @@ export default function TaskManager() {
   const [description, setDescription] = useState('');
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Lấy vai trò người dùng từ localStorage
-  const userRole = localStorage.getItem('userRole') || 'Guest';
-  const isAdmin = userRole === 'Admin';
-
   useEffect(() => {
     const unsub = subscribeTasks(
       (data) => {
@@ -42,7 +38,6 @@ export default function TaskManager() {
   }, []);
 
   const handleStartAdd = () => {
-    if (!isAdmin) return;
     setTitle('');
     setRequiredCount(1);
     setDescription('');
@@ -52,7 +47,6 @@ export default function TaskManager() {
   };
 
   const handleStartEdit = (t: TaskItem) => {
-    if (!isAdmin) return;
     setTitle(t.title);
     setRequiredCount(t.requiredCount || 1);
     setDescription(t.description || '');
@@ -63,7 +57,6 @@ export default function TaskManager() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin) return;
     if (!title.trim()) {
       setMsg({ type: 'error', text: 'Vui lòng nhập tên công việc trực nhật!' });
       return;
@@ -98,7 +91,6 @@ export default function TaskManager() {
   };
 
   const handleDelete = async (id: string, taskTitle: string) => {
-    if (!isAdmin) return;
     if (confirm(`Bạn có chắc chắn muốn xóa công việc: "${taskTitle}"?`)) {
       try {
         await deleteTask(id, taskTitle);
@@ -111,7 +103,6 @@ export default function TaskManager() {
   };
 
   const handleMoveOrder = async (index: number, direction: 'up' | 'down') => {
-    if (!isAdmin) return;
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= tasks.length) return;
 
@@ -120,14 +111,14 @@ export default function TaskManager() {
     list[index] = list[targetIndex];
     list[targetIndex] = temp;
 
+    // Cập nhật lại order
     for (let i = 0; i < list.length; i++) {
       await saveTask({ ...list[i], order: i + 1 });
     }
   };
 
   const handleResetDefaults = async () => {
-    if (!isAdmin) return;
-    if (confirm('Khôi phục danh sách về các công việc chuẩn ban đầu?')) {
+    if (confirm('Khôi phục danh sách về 2 công việc chuẩn ban đầu?')) {
       for (const t of DEFAULT_TASKS) {
         await saveTask(t);
       }
@@ -150,27 +141,24 @@ export default function TaskManager() {
           </p>
         </div>
 
-        {/* Nút thao tác Admin */}
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleResetDefaults}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Khôi phục các công việc mẫu mặc định"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Mặc định</span>
-            </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleResetDefaults}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Khôi phục 2 công việc mẫu mặc định"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Mặc định</span>
+          </button>
 
-            <button
-              onClick={handleStartAdd}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Nhiệm Vụ Mới</span>
-            </button>
-          </div>
-        )}
+          <button
+            onClick={handleStartAdd}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Thêm Nhiệm Vụ Mới</span>
+          </button>
+        </div>
       </div>
 
       {/* Thông báo */}
@@ -185,8 +173,8 @@ export default function TaskManager() {
         </div>
       )}
 
-      {/* Form Thêm & Sửa Công Việc (Chỉ Admin) */}
-      {isAdmin && isAdding && (
+      {/* Modal / Card Thêm & Sửa Công Việc */}
+      {isAdding && (
         <div className="bg-white rounded-xl border-2 border-indigo-200 shadow-md p-5 animate-in fade-in zoom-in-95">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
             <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
@@ -273,7 +261,7 @@ export default function TaskManager() {
           <div className="p-8 text-center text-xs text-slate-500 animate-pulse">Đang tải danh sách nhiệm vụ...</div>
         ) : tasks.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs italic">
-            Chưa có công việc trực nhật nào. {isAdmin && 'Hãy bấm "Thêm Nhiệm Vụ Mới" hoặc "Mặc định".'}
+            Chưa có công việc trực nhật nào. Hãy bấm "Thêm Nhiệm Vụ Mới" hoặc "Mặc định".
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -306,45 +294,44 @@ export default function TaskManager() {
                   </div>
                 </div>
 
-                {/* Các nút hành động: Chỉ Admin mới nhìn thấy */}
-                {isAdmin && (
-                  <div className="flex items-center justify-end gap-1.5 shrink-0 pl-10 sm:pl-0">
-                    <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50 mr-1">
-                      <button
-                        onClick={() => handleMoveOrder(idx, 'up')}
-                        disabled={idx === 0}
-                        className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                        title="Chuyển lên trên"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleMoveOrder(idx, 'down')}
-                        disabled={idx === tasks.length - 1}
-                        className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                        title="Chuyển xuống dưới"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
+                {/* Nút hành động */}
+                <div className="flex items-center justify-end gap-1.5 shrink-0 pl-10 sm:pl-0">
+                  {/* Di chuyển thứ tự */}
+                  <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50 mr-1">
                     <button
-                      onClick={() => handleStartEdit(task)}
-                      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                      title="Chỉnh sửa nội dung"
+                      onClick={() => handleMoveOrder(idx, 'up')}
+                      disabled={idx === 0}
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                      title="Chuyển lên trên"
                     >
-                      <Edit3 className="w-4 h-4" />
+                      <ArrowUp className="w-3.5 h-3.5" />
                     </button>
-
                     <button
-                      onClick={() => handleDelete(task.id, task.title)}
-                      className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      title="Xóa công việc này"
+                      onClick={() => handleMoveOrder(idx, 'down')}
+                      disabled={idx === tasks.length - 1}
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                      title="Chuyển xuống dưới"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <ArrowDown className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                )}
+
+                  <button
+                    onClick={() => handleStartEdit(task)}
+                    className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                    title="Chỉnh sửa nội dung"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(task.id, task.title)}
+                    className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                    title="Xóa công việc này"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

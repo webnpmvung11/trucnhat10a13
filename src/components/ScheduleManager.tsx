@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, startOfWeek, addDays } from 'date-fns';
 import { 
-  Sparkles, Copy, X, Edit2, Camera, CheckCircle2, 
-  ChevronLeft, ChevronRight, Save, UserCheck, 
-  FileSpreadsheet, HardDrive, Download 
+  Sparkles, Copy, Trash, X, Edit2, Camera, CheckCircle2, 
+  ChevronLeft, ChevronRight, Save, UserCheck, Shield, Clock, 
+  Users, ArrowRight, FileSpreadsheet, HardDrive, Download 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportToCsv } from '../utils/csv';
@@ -35,7 +35,7 @@ export default function ScheduleManager() {
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -43,7 +43,7 @@ export default function ScheduleManager() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [loading, setLoading] = useState(true);
   
-  // Quản lý tuần làm việc
+  // Date context (current week)
   const [currentDate, setCurrentDate] = useState(new Date());
   const [copyMsg, setCopyMsg] = useState('');
   const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
@@ -56,13 +56,9 @@ export default function ScheduleManager() {
   const [isCustomTask, setIsCustomTask] = useState(false);
 
   const [viewingPhoto, setViewingPhoto] = useState<{urls: string[], time: number | null, index: number} | null>(null);
-
-  // Lấy vai trò từ localStorage
   const userRole = localStorage.getItem("userRole") || 'Guest';
-  const isAdmin = userRole === 'Admin';
-  const isManager = userRole === 'Manager';
 
-  // Modal Tạo Lịch Tự Động State
+  // Generation Modal State
   const daysOfCurrentWeek = Array.from({ length: 6 }).map((_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 1 }), i));
   const [showGenModal, setShowGenModal] = useState(false);
   const [genStartDate, setGenStartDate] = useState(format(daysOfCurrentWeek[0], 'yyyy-MM-dd'));
@@ -70,9 +66,8 @@ export default function ScheduleManager() {
   const [genSelectedDates, setGenSelectedDates] = useState<string[]>([]);
   const [allDatesInRange, setAllDatesInRange] = useState<string[]>([]);
   const [studentsPerDay, setStudentsPerDay] = useState(3);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Lắng nghe dữ liệu thời gian thực từ Firestore (Real-time sync)
+  // 1. Lắng nghe dữ liệu thời gian thực từ Firestore (Real-time sync)
   useEffect(() => {
     let schedLoaded = false;
     let studLoaded = false;
@@ -159,7 +154,7 @@ export default function ScheduleManager() {
     });
   };
 
-  // Upload ảnh minh chứng
+  // Upload ảnh: Ưu tiên tải thẳng lên Google Drive qua Apps Script (không giới hạn), dự phòng qua Firebase Storage
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -180,6 +175,7 @@ export default function ScheduleManager() {
       const driveFolderId = settings.sheetConfig?.driveFolderId?.trim();
 
       const uploadedUrls = await Promise.all(compressedDataUrls.map(async (dataUrl, i) => {
+        // 1. Thử tải lên Google Drive của lớp
         if (scriptUrl) {
           try {
             const driveUrl = await uploadImageToGoogleDriveViaAppsScript(
@@ -192,10 +188,11 @@ export default function ScheduleManager() {
               return driveUrl;
             }
           } catch (driveErr) {
-            console.warn('Google Drive Apps Script fallback to Firebase Storage:', driveErr);
+            console.warn('Google Drive Apps Script notice, fallback to Firebase Storage:', driveErr);
           }
         }
 
+        // 2. Dự phòng: Tải lên Firebase Storage
         try {
           const res = await fetch(dataUrl);
           const blob = await res.blob();
@@ -204,10 +201,11 @@ export default function ScheduleManager() {
             return storageUrl;
           }
         } catch (storageErr) {
-          console.warn('Firebase storage fallback notice:', storageErr);
+          console.warn('Firebase storage notice:', storageErr);
         }
 
-        throw new Error(`Ảnh số ${i + 1} không thể tải lên Google Drive hoặc Firebase Storage.`);
+        // Tuyệt đối không fallback về Base64 để tránh lỗi Firestore 1MB Document Limit
+        throw new Error(`Ảnh số ${i + 1} không thể tải lên Google Drive hoặc Firebase Storage. Vui lòng kiểm tra lại.`);
       }));
 
       setPhotoUrls(prev => [...prev, ...uploadedUrls].slice(0, 5));
@@ -220,6 +218,8 @@ export default function ScheduleManager() {
     }
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const submitCompletion = async () => {
     if (!taskContent.trim()) {
       setErrorMsg('Vui lòng chọn hoặc nhập nội dung công việc');
@@ -231,6 +231,7 @@ export default function ScheduleManager() {
       setErrorMsg('');
       const targetStudent = students.find(s => s.id === selectedSchedule?.studentId);
 
+      // Đảm bảo chỉ gửi các URL ngắn đã tải lên đám mây, loại bỏ hoàn toàn Base64
       const cleanUrls = photoUrls.filter(
         p => typeof p === 'string' && (p.startsWith('http://') || p.startsWith('https://')) && !p.startsWith('data:')
       );
@@ -256,14 +257,13 @@ export default function ScheduleManager() {
   };
 
   const getWeekDays = () => {
-    const start = startOfWeek(currentDate, { weekStartsOn: 1 });
-    return Array.from({ length: 6 }).map((_, i) => addDays(start, i));
+    const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
+    return Array.from({ length: 6 }).map((_, i) => addDays(start, i)); // Mon to Sat
   };
 
   const days = getWeekDays();
 
   const handleAutoGenerate = async () => {
-    if (!isAdmin) return;
     if (genSelectedDates.length === 0) return;
     await generateSchedule(genSelectedDates, studentsPerDay);
     setShowGenModal(false);
@@ -385,9 +385,7 @@ export default function ScheduleManager() {
         studentId: editStudentId,
         studentName: selectedStudent?.name || '',
         assignedTask: finalTask,
-        date: editingSchedule.date,
-        isEditedByLPLD: isManager,
-        editedBy: isManager ? 'Lớp phó lao động' : 'Giáo viên chủ nhiệm'
+        date: editingSchedule.date
       });
       setEditingSchedule(null);
     } catch (err: any) {
@@ -420,8 +418,7 @@ export default function ScheduleManager() {
             <span>GOOGLE SHEETS & DRIVE</span>
           </button>
 
-          {/* Nút Tạo Lịch Tự Động: CHỈ HIỂN THỊ DÀNH CHO ADMIN */}
-          {isAdmin && (
+          {userRole === 'Admin' && (
             <button
               onClick={() => setShowGenModal(true)}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
@@ -442,7 +439,7 @@ export default function ScheduleManager() {
           <button
             onClick={exportScheduleCsv}
             className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
-            title="Xuất lịch trực ra file CSV chuẩn UTF-8"
+            title="Xuất lịch trực ra file CSV chuẩn UTF-8 (mở Excel hiển thị tiếng Việt không bị vỡ font)"
           >
             <Download className="w-3.5 h-3.5 text-indigo-600" />
             <span>XUẤT FILE CSV</span>
@@ -487,7 +484,7 @@ export default function ScheduleManager() {
         </button>
       </div>
 
-      {/* Grid lịch trực trong tuần */}
+      {/* Grid lịch trực trong tuần (Thứ 2 đến Thứ 7) */}
       {loading ? (
         <div className="p-12 text-center text-xs text-slate-500 animate-pulse">
           Đang đồng bộ dữ liệu thời gian thực...
@@ -562,7 +559,7 @@ export default function ScheduleManager() {
                                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)] ml-1" title="Đã hoàn thành"></span>
                                 ) : (
                                   <div className="flex items-center">
-                                    {/* Nút Chỉnh sửa (Cây bút) - Cả GVCN và LPLĐ đều có quyền */}
+                                    {/* Nút Chỉnh sửa (cây bút) - Cả GVCN và LPLĐ đều có quyền */}
                                     <button
                                       onClick={() => openEditModal(schedule)}
                                       className="p-1 text-indigo-600 hover:bg-indigo-100 rounded transition-colors cursor-pointer mr-0.5"
@@ -571,8 +568,8 @@ export default function ScheduleManager() {
                                       <Edit2 className="w-3.5 h-3.5" />
                                     </button>
 
-                                    {/* Nút Xóa (Thùng rác) - CHỈ ADMIN MỚI CÓ QUYỀN */}
-                                    {isAdmin && (
+                                    {/* Nút Xóa (thùng rác) - CHỈ DUY NHẤT ADMIN MỚI CÓ QUYỀN. LPLĐ hoàn toàn bị ẩn */}
+                                    {userRole === 'Admin' && (
                                       <button
                                         onClick={() => {
                                           if (confirm(`Xóa ca trực của bạn "${student?.name || 'HS'}"?`)) {
@@ -641,14 +638,14 @@ export default function ScheduleManager() {
             <div className="flex justify-between items-center pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${
-                  isManager ? 'bg-emerald-600' : 'bg-indigo-600'
+                  userRole === 'Manager' ? 'bg-emerald-600' : 'bg-indigo-600'
                 }`}>
                   <Edit2 className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Chỉnh Sửa Ca Trực</h3>
                   <span className="text-[10px] text-slate-500">
-                    {isManager ? 'Quyền Lớp Phó Lao Động (LPLĐ)' : 'Quyền Giáo Viên Chủ Nhiệm (Admin)'}
+                    {userRole === 'Manager' ? 'Quyền Lớp Phó Lao Động (LPLĐ)' : 'Quyền Giáo Viên Chủ Nhiệm (Admin)'}
                   </span>
                 </div>
               </div>
@@ -662,7 +659,7 @@ export default function ScheduleManager() {
             </div>
 
             {/* Thông báo phân quyền */}
-            {isManager && (
+            {userRole === 'Manager' && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <UserCheck className="w-4 h-4 text-amber-600" />
@@ -851,8 +848,8 @@ export default function ScheduleManager() {
         </div>
       )}
 
-      {/* Modal Tạo Lịch Tự Động (Chỉ Admin) */}
-      {isAdmin && showGenModal && (
+      {/* Modal Tạo Lịch Tự Động */}
+      {showGenModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 flex flex-col animate-in fade-in zoom-in-95">
             <div className="flex justify-between items-center mb-3">

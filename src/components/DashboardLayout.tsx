@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { 
   Users, CalendarDays, ClipboardList, LogOut, Link as LinkIcon, 
-  Image as ImageIcon, ClipboardCheck, Shield, Clock, FileSpreadsheet, RotateCcw 
+  Image as ImageIcon, ClipboardCheck, Shield, Clock, FileSpreadsheet, HardDrive, RotateCcw 
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { signOutUser, auth } from '../firebase';
@@ -25,12 +25,9 @@ import { exportBackupData } from '../utils/backup';
 export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Xác định vai trò đăng nhập từ localStorage
   const role = localStorage.getItem('userRole');
-  const isAdmin = role === 'Admin';
-  const isManager = role === 'Manager';
   const name = localStorage.getItem('userName') || 'Người dùng';
+  const email = localStorage.getItem('userEmail') || '';
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
@@ -59,7 +56,7 @@ export default function DashboardLayout() {
   // Tự động sao lưu ngầm (Auto-Backup) toàn bộ dữ liệu lên Google Drive mỗi ngày cho Admin
   const hasAttemptedDailyBackupRef = useRef(false);
   useEffect(() => {
-    if (!isAdmin) return;
+    if (role !== 'Admin') return;
     const scriptUrl = settings.sheetConfig?.appsScriptImageUrl?.trim();
     if (!scriptUrl) return;
 
@@ -75,9 +72,9 @@ export default function DashboardLayout() {
         console.log('[Auto-Backup] Tự động sao lưu lịch trực nhật lên Google Drive thành công.');
       })
       .catch((err) => console.warn('[Auto-Backup] Lỗi sao lưu ngầm Google Drive:', err));
-  }, [isAdmin, settings, students, schedules, tasks]);
+  }, [role, settings, students, schedules, tasks]);
 
-  // Điều hướng về trang Login nếu chưa xác thực
+  // Redirect to login if not authenticated
   if (!role || role === 'Guest') {
     return <Navigate to="/" replace />;
   }
@@ -88,12 +85,11 @@ export default function DashboardLayout() {
     navigate('/');
   };
 
-  // Danh sách Menu điều hướng (Tự động ẩn các menu Admin đối với LPLĐ)
   const navItems = [
     { path: '/dashboard/schedule', icon: CalendarDays, label: 'Lịch trực nhật' },
     { path: '/dashboard/students', icon: Users, label: 'Danh sách lớp' },
     { path: '/dashboard/photos', icon: ImageIcon, label: 'Thư viện ảnh' },
-    ...(isAdmin ? [
+    ...(role === 'Admin' ? [
       { path: '/dashboard/tasks', icon: ClipboardCheck, label: 'Quản lý nhiệm vụ' },
       { path: '/dashboard/accounts', icon: Shield, label: 'Phân quyền Google' },
       { path: '/dashboard/logs', icon: ClipboardList, label: 'Nhật ký hệ thống' }
@@ -140,7 +136,7 @@ export default function DashboardLayout() {
             </Link>
           ))}
 
-          {/* Nút mở đồng bộ Google Sheets & Drive (Dùng cho cả Admin và LPLĐ) */}
+          {/* Nút mở đồng bộ Google Sheets & Drive */}
           <button
             type="button"
             onClick={() => setIsSheetModalOpen(true)}
@@ -150,8 +146,8 @@ export default function DashboardLayout() {
             <span>Google Sheets & Drive</span>
           </button>
 
-          {/* Nút Khôi phục dữ liệu (Chỉ hiển thị cho Admin/GVCN) */}
-          {isAdmin && (
+          {/* Nút Khôi phục dữ liệu cho Admin */}
+          {role === 'Admin' && (
             <button
               type="button"
               onClick={() => setIsRestoreModalOpen(true)}
@@ -189,15 +185,15 @@ export default function DashboardLayout() {
                 />
               ) : (
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                  isAdmin ? 'bg-purple-600 text-white' : 'bg-emerald-600 text-white'
+                  role === 'Admin' ? 'bg-purple-600 text-white' : 'bg-emerald-600 text-white'
                 }`}>
-                  {isAdmin ? 'GV' : 'LP'}
+                  {role === 'Admin' ? 'GV' : 'LP'}
                 </div>
               )}
               <div className="min-w-0">
                 <p className="text-xs font-bold truncate text-slate-200">{name}</p>
                 <p className="text-[10px] text-slate-400 truncate">
-                  {isAdmin ? 'GV Chủ Nhiệm' : 'Lớp Phó Lao Động'}
+                  {role === 'Admin' ? 'GV Chủ Nhiệm' : 'Lớp Phó Lao Động'}
                 </p>
               </div>
             </div>
@@ -230,13 +226,11 @@ export default function DashboardLayout() {
         tasks={tasks}
       />
 
-      {/* Modal Khôi Phục Dữ Liệu Lớp Học (Chỉ Admin) */}
-      {isAdmin && (
-        <RestoreDataModal
-          isOpen={isRestoreModalOpen}
-          onClose={() => setIsRestoreModalOpen(false)}
-        />
-      )}
+      {/* Modal Khôi Phục Dữ Liệu Lớp Học */}
+      <RestoreDataModal
+        isOpen={isRestoreModalOpen}
+        onClose={() => setIsRestoreModalOpen(false)}
+      />
     </div>
   );
 }
