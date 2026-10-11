@@ -1,3 +1,7 @@
+// Lấy vai trò từ localStorage hoặc State hệ thống
+const userRole = localStorage.getItem('userRole'); 
+const isAdmin = userRole === 'Admin'; // Đúng là Admin mới bằng true
+
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, UserCircle, Plus, Trash2, Check, X, AlertTriangle, 
