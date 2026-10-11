@@ -1,9 +1,5 @@
-// Lấy vai trò từ localStorage hoặc State hệ thống
-const userRole = localStorage.getItem('userRole'); 
-const isAdmin = userRole === 'Admin'; // Đúng là Admin mới bằng true
-
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Check, X, ClipboardType, Users, AlertCircle, Download } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, ClipboardType, Users, Download } from 'lucide-react';
 import { addStudents, deleteStudent, updateStudent } from '../api';
 import { subscribeStudents } from '../services/firestoreService';
 import { exportToCsv } from '../utils/csv';
@@ -16,7 +12,10 @@ export default function StudentManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Lấy vai trò người dùng từ localStorage
   const userRole = localStorage.getItem('userRole') || 'Guest';
+  const isAdmin = userRole === 'Admin';
 
   useEffect(() => {
     const unsub = subscribeStudents((data) => {
@@ -40,7 +39,7 @@ export default function StudentManager() {
   };
 
   const handleAddBulk = async () => {
-    if (!bulkInput.trim()) return;
+    if (!isAdmin || !bulkInput.trim()) return;
     const names = bulkInput.split('\n').map(n => n.trim()).filter(n => n);
     if (names.length > 0) {
       await addStudents(names);
@@ -50,6 +49,7 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!isAdmin) return;
     try {
       await deleteStudent(id);
       setConfirmDeleteId(null);
@@ -59,11 +59,13 @@ export default function StudentManager() {
   };
 
   const startEdit = (student: any) => {
+    if (!isAdmin) return;
     setEditingId(student.id);
     setEditName(student.name);
   };
 
   const saveEdit = async () => {
+    if (!isAdmin) return;
     if (editingId && editName.trim()) {
       await updateStudent(editingId, editName.trim());
       setEditingId(null);
@@ -84,6 +86,7 @@ export default function StudentManager() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Nút XUẤT CSV: Cho phép cả Admin và LPLĐ sử dụng */}
           {students.length > 0 && (
             <button
               onClick={handleExportCsv}
@@ -95,17 +98,21 @@ export default function StudentManager() {
             </button>
           )}
 
-          <button 
-            onClick={() => setIsAdding(!isAdding)}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>THÊM HỌC SINH</span>
-          </button>
+          {/* Nút THÊM HỌC SINH: Chỉ Admin mới nhìn thấy */}
+          {isAdmin && (
+            <button 
+              onClick={() => setIsAdding(!isAdding)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>THÊM HỌC SINH</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {isAdding && (
+      {/* Form thêm học sinh: Chỉ hiển thị khi là Admin */}
+      {isAdmin && isAdding && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 animate-in fade-in zoom-in-95">
           <div className="flex justify-between items-center border-b border-slate-100 pb-2">
             <h3 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
@@ -125,7 +132,7 @@ export default function StudentManager() {
             rows={5}
             value={bulkInput}
             onChange={(e) => setBulkInput(e.target.value)}
-            placeholder="Nguyễn Văn A&#10;Trần Thị B&#10;Lê Văn C"
+            placeholder={"Nguyễn Văn A\nTrần Thị B\nLê Văn C"}
             className="w-full text-xs p-3 border border-slate-300 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none leading-relaxed font-mono"
           />
 
@@ -151,7 +158,7 @@ export default function StudentManager() {
           <div className="p-8 text-center text-xs text-slate-500 animate-pulse">Đang tải danh sách học sinh...</div>
         ) : students.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs italic">
-            Chưa có học sinh nào. Hãy nhấn "THÊM HỌC SINH" để tạo danh sách lớp.
+            Chưa có học sinh nào. {isAdmin && 'Hãy nhấn "THÊM HỌC SINH" để tạo danh sách lớp.'}
           </div>
         ) : (
           <table className="w-full text-left border-collapse text-xs">
@@ -160,7 +167,7 @@ export default function StudentManager() {
                 <th className="py-3 px-4 w-14 text-center">STT</th>
                 <th className="py-3 px-4">Họ và Tên</th>
                 <th className="py-3 px-4 w-40 text-center">Lần trực gần nhất</th>
-                <th className="py-3 px-4 w-28 text-center">Thao tác</th>
+                {isAdmin && <th className="py-3 px-4 w-28 text-center">Thao tác</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -170,7 +177,7 @@ export default function StudentManager() {
                     {idx + 1}
                   </td>
                   <td className="py-3 px-4">
-                    {editingId === student.id ? (
+                    {isAdmin && editingId === student.id ? (
                       <div className="flex items-center space-x-2">
                         <input 
                           type="text" 
@@ -193,18 +200,20 @@ export default function StudentManager() {
                   <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-500">
                     {student.lastCleaned ? new Date(student.lastCleaned).toLocaleDateString('vi-VN') : 'Chưa trực'}
                   </td>
-                  <td className="py-3 px-4 text-center">
-                    {editingId !== student.id && (
-                      <div className="flex items-center justify-center space-x-2">
-                        <button 
-                          onClick={() => startEdit(student)}
-                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                          title="Sửa tên"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
 
-                        {userRole === 'Admin' && (
+                  {/* Cột Thao tác (Sửa/Xóa): Chỉ hiển thị đối với Admin */}
+                  {isAdmin && (
+                    <td className="py-3 px-4 text-center">
+                      {editingId !== student.id && (
+                        <div className="flex items-center justify-center space-x-2">
+                          <button 
+                            onClick={() => startEdit(student)}
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                            title="Sửa tên"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
                           <button 
                             onClick={() => setConfirmDeleteId(student.id)}
                             className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
@@ -212,10 +221,10 @@ export default function StudentManager() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
+                        </div>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -223,7 +232,8 @@ export default function StudentManager() {
         )}
       </div>
 
-      {confirmDeleteId && (
+      {/* Modal xác nhận xóa: Chỉ Admin mới tương tác được */}
+      {isAdmin && confirmDeleteId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4">
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
