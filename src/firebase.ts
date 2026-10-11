@@ -47,13 +47,6 @@ export function resetCustomFirebaseConfig(): void {
   window.location.reload();
 }
 
-/**
- * Cấu hình Firebase Authentication kế thừa 100% từ web thủ quỹ đã chạy ổn định:
- * - Khi chạy trên Vercel (*.vercel.app): sử dụng tên miền Vercel (window.location.hostname)
- *   để cách ly cookie bên thứ nhất (first-party cookie isolation), vượt qua các cơ chế chặn của trình duyệt và tiện ích quảng cáo.
- * - Khi chạy trên AI Studio (*.run.app) hoặc localhost: sử dụng domain chuẩn quanlytrucnhat.firebaseapp.com
- *   để trao đổi cross-origin postMessage mượt mà trong iframe.
- */
 export const STANDARD_FIREBASE_AUTH_DOMAIN = "quanlytrucnhat.firebaseapp.com";
 
 export function resolveFirebaseConfig(): { config: FirebaseCustomConfig; source: 'custom' | 'env' | 'fallback' } {
@@ -81,7 +74,7 @@ export function resolveFirebaseConfig(): { config: FirebaseCustomConfig; source:
   const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
-  // Kiểm tra host Vercel (theo đúng kỹ thuật của web thủ quỹ)
+  // Kiểm tra host Vercel
   const isVercelHost = typeof window !== 'undefined' && (
     window.location.hostname.endsWith('vercel.app') ||
     window.location.hostname.includes('trucnhat')
@@ -101,8 +94,9 @@ export function resolveFirebaseConfig(): { config: FirebaseCustomConfig; source:
     return {
       config: {
         apiKey: envApiKey,
+        // ĐÃ SỬA: Bắt buộc dùng tên miền Vercel hiện tại khi chạy trên Vercel để khớp với cầu nối vercel.json
         authDomain: isVercelHost 
-          ? (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || window.location.hostname)
+          ? window.location.hostname 
           : (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.includes('firebaseapp.com') ? import.meta.env.VITE_FIREBASE_AUTH_DOMAIN : `${envProjectId}.firebaseapp.com`),
         projectId: envProjectId,
         storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${envProjectId}.firebasestorage.app`,
@@ -175,12 +169,6 @@ export async function uploadPhotoToFirebaseStorage(
 
 export { getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, type User };
 
-/**
- * Đăng nhập Google với cơ chế thông minh:
- * 1. Thử mở popup trước (signInWithPopup)
- * 2. Nếu popup bị chặn (trình duyệt điện thoại, ad-blocker...) với mã auth/popup-blocked,
- *    tự động fallback chuyển hướng (signInWithRedirect)
- */
 export const signInWithGoogle = async (): Promise<User | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
