@@ -1,0 +1,8 @@
+{
+  "name": "Quản lý lịch trực nhật",
+  "description": "Ứng dụng quản lý lịch trực nhật tự động phân chia, kéo thả và báo cáo công khai dành cho lớp học.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

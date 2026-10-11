@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* Chống copy và bôi đen văn bản */
+body {
+  -webkit-user-select: none; /* Safari */
+  -ms-user-select: none; /* IE 10 and IE 11 */
+  user-select: none; /* Standard syntax */
+}
+
+/* Cho phép nhập liệu trong các ô input/textarea */
+input, textarea, select {
+  -webkit-user-select: auto;
+  -ms-user-select: auto;
+  user-select: auto;
+}

@@ -1,0 +1,33 @@
+{
+  "rules_version": "2",
+  "collections": {
+    "accounts": {
+      "description": "User accounts and PINs",
+      "rules": {
+        "read": "if true;",
+        "write": "if true;"
+      }
+    },
+    "students": {
+      "description": "List of students",
+      "rules": {
+        "read": "if true;",
+        "write": "if true;"
+      }
+    },
+    "schedules": {
+      "description": "Duty schedules",
+      "rules": {
+        "read": "if true;",
+        "write": "if true;"
+      }
+    },
+    "auditLogs": {
+      "description": "Audit logs",
+      "rules": {
+        "read": "if true;",
+        "write": "if true;"
+      }
+    }
+  }
+}
