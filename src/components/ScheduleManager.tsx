@@ -1,13 +1,9 @@
-// Lấy vai trò từ localStorage hoặc State hệ thống
-const userRole = localStorage.getItem('userRole'); 
-const isAdmin = userRole === 'Admin'; // Đúng là Admin mới bằng true
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, startOfWeek, addDays } from 'date-fns';
 import { 
-  Sparkles, Copy, Trash, X, Edit2, Camera, CheckCircle2, 
+  Sparkles, Copy, X, Edit2, Camera, CheckCircle2, 
   ChevronLeft, ChevronRight, Save, UserCheck, Shield, Clock, 
-  Users, ArrowRight, FileSpreadsheet, HardDrive, Download 
+  Users, ArrowRight, FileSpreadsheet, Download, Upload 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportToCsv } from '../utils/csv';
@@ -39,7 +35,7 @@ export default function ScheduleManager() {
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -60,7 +56,12 @@ export default function ScheduleManager() {
   const [isCustomTask, setIsCustomTask] = useState(false);
 
   const [viewingPhoto, setViewingPhoto] = useState<{urls: string[], time: number | null, index: number} | null>(null);
+  
+  // Xác định vai trò đăng nhập
   const userRole = localStorage.getItem("userRole") || 'Guest';
+  const isAdmin = userRole === 'Admin';
+  const isManager = userRole === 'Manager';
+  const canManageSchedule = isAdmin || isManager; // Cả Admin và LPLĐ đều có quyền tạo lịch & sửa ca
 
   // Generation Modal State
   const daysOfCurrentWeek = Array.from({ length: 6 }).map((_, i) => addDays(startOfWeek(currentDate, { weekStartsOn: 1 }), i));
@@ -71,7 +72,7 @@ export default function ScheduleManager() {
   const [allDatesInRange, setAllDatesInRange] = useState<string[]>([]);
   const [studentsPerDay, setStudentsPerDay] = useState(3);
 
-  // 1. Lắng nghe dữ liệu thời gian thực từ Firestore (Real-time sync)
+  // 1. Lắng nghe dữ liệu thời gian thực từ Firestore
   useEffect(() => {
     let schedLoaded = false;
     let studLoaded = false;
@@ -125,7 +126,6 @@ export default function ScheduleManager() {
     setGenSelectedDates(prev => prev.includes(dStr) ? prev.filter(x => x !== dStr) : [...prev, dStr].sort());
   };
 
-  // Nén ảnh bằng Canvas trước khi tải lên
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -158,7 +158,6 @@ export default function ScheduleManager() {
     });
   };
 
-  // Upload ảnh: Ưu tiên tải thẳng lên Google Drive qua Apps Script (không giới hạn), dự phòng qua Firebase Storage
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -179,7 +178,6 @@ export default function ScheduleManager() {
       const driveFolderId = settings.sheetConfig?.driveFolderId?.trim();
 
       const uploadedUrls = await Promise.all(compressedDataUrls.map(async (dataUrl, i) => {
-        // 1. Thử tải lên Google Drive của lớp
         if (scriptUrl) {
           try {
             const driveUrl = await uploadImageToGoogleDriveViaAppsScript(
@@ -192,11 +190,10 @@ export default function ScheduleManager() {
               return driveUrl;
             }
           } catch (driveErr) {
-            console.warn('Google Drive Apps Script notice, fallback to Firebase Storage:', driveErr);
+            console.warn('Google Drive notice:', driveErr);
           }
         }
 
-        // 2. Dự phòng: Tải lên Firebase Storage
         try {
           const res = await fetch(dataUrl);
           const blob = await res.blob();
@@ -208,8 +205,7 @@ export default function ScheduleManager() {
           console.warn('Firebase storage notice:', storageErr);
         }
 
-        // Tuyệt đối không fallback về Base64 để tránh lỗi Firestore 1MB Document Limit
-        throw new Error(`Ảnh số ${i + 1} không thể tải lên Google Drive hoặc Firebase Storage. Vui lòng kiểm tra lại.`);
+        throw new Error(`Ảnh số ${i + 1} không thể tải lên đám mây. Vui lòng thử lại.`);
       }));
 
       setPhotoUrls(prev => [...prev, ...uploadedUrls].slice(0, 5));
@@ -235,18 +231,13 @@ export default function ScheduleManager() {
       setErrorMsg('');
       const targetStudent = students.find(s => s.id === selectedSchedule?.studentId);
 
-      // Đảm bảo chỉ gửi các URL ngắn đã tải lên đám mây, loại bỏ hoàn toàn Base64
       const cleanUrls = photoUrls.filter(
         p => typeof p === 'string' && (p.startsWith('http://') || p.startsWith('https://')) && !p.startsWith('data:')
       );
 
       await completeSchedule(selectedSchedule.id, taskContent, cleanUrls, targetStudent?.name);
       
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.8 },
-      });
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
 
       setSuccessMsg('Đã ghi nhận hoàn thành trực nhật thành công!');
       setTimeout(() => setSuccessMsg(''), 3000);
@@ -261,8 +252,8 @@ export default function ScheduleManager() {
   };
 
   const getWeekDays = () => {
-    const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
-    return Array.from({ length: 6 }).map((_, i) => addDays(start, i)); // Mon to Sat
+    const start = startOfWeek(currentDate, { weekStartsOn: 1 });
+    return Array.from({ length: 6 }).map((_, i) => addDays(start, i));
   };
 
   const days = getWeekDays();
@@ -285,7 +276,7 @@ export default function ScheduleManager() {
       };
       
       const dailySchedules = schedules.filter(s => s.date === dateStr);
-      text += `📍 ${vnDayMap[dayName]} (${format(day, 'dd/MM')}): `;
+      text += `📍 ${vnDayMap[dayName] || 'Thứ'} (${format(day, 'dd/MM')}): `;
       if (dailySchedules.length === 0) {
         text += `Chưa phân công\n`;
       } else {
@@ -313,16 +304,8 @@ export default function ScheduleManager() {
     };
 
     const headers = [
-      'STT', 
-      'Ngày trực', 
-      'Thứ', 
-      'Họ và tên học sinh', 
-      'Nhiệm vụ phân công', 
-      'Trạng thái', 
-      'Nội dung hoàn thành', 
-      'Thời gian hoàn thành', 
-      'Người thực hiện / Sửa đổi', 
-      'Ghi chú chỉnh sửa'
+      'STT', 'Ngày trực', 'Thứ', 'Họ và tên học sinh', 'Nhiệm vụ phân công', 
+      'Trạng thái', 'Nội dung hoàn thành', 'Thời gian hoàn thành', 'Người thực hiện / Sửa đổi', 'Ghi chú chỉnh sửa'
     ];
 
     const sorted = [...schedules].sort((a, b) => a.date.localeCompare(b.date));
@@ -336,16 +319,9 @@ export default function ScheduleManager() {
       const completedTimeText = s.completedAt ? new Date(s.completedAt).toLocaleString('vi-VN') : '';
 
       return [
-        index + 1,
-        s.date,
-        dayName,
-        studentName,
-        s.assignedTask || '',
-        statusText,
-        s.taskContent || '',
-        completedTimeText,
-        s.editedBy || s.completedBy || '',
-        s.editNote || (s.isEditedByLPLD ? 'LPLĐ sửa' : '')
+        index + 1, s.date, dayName, studentName, s.assignedTask || '',
+        statusText, s.taskContent || '', completedTimeText,
+        s.editedBy || s.completedBy || '', s.editNote || (s.isEditedByLPLD ? 'LPLĐ sửa' : '')
       ];
     });
 
@@ -353,7 +329,6 @@ export default function ScheduleManager() {
     exportToCsv(filename, headers, rows);
   };
 
-  // Mở modal sửa ca trực
   const openEditModal = (schedule: ScheduleItem) => {
     setEditingSchedule(schedule);
     setEditStudentId(schedule.studentId);
@@ -372,7 +347,6 @@ export default function ScheduleManager() {
     }
   };
 
-  // Lưu chỉnh sửa ca trực (LPLĐ & Admin)
   const saveScheduleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule || !editStudentId) return;
@@ -415,17 +389,17 @@ export default function ScheduleManager() {
           {/* Nút Đồng bộ Google Sheets */}
           <button
             onClick={() => setIsSheetModalOpen(true)}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
-            title="Đồng bộ lịch trực sang Google Sheets & Drive"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>GOOGLE SHEETS & DRIVE</span>
           </button>
 
-          {userRole === 'Admin' && (
+          {/* CHÚ Ý: Cả Admin và LPLĐ đều được tạo lịch tự động */}
+          {canManageSchedule && (
             <button
               onClick={() => setShowGenModal(true)}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>TẠO LỊCH TỰ ĐỘNG</span>
@@ -434,7 +408,7 @@ export default function ScheduleManager() {
 
           <button
             onClick={copyToZalo}
-            className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
+            className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
           >
             <Copy className="w-3.5 h-3.5" />
             <span>COPY LỊCH GỬI ZALO</span>
@@ -442,8 +416,7 @@ export default function ScheduleManager() {
 
           <button
             onClick={exportScheduleCsv}
-            className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors cursor-pointer"
-            title="Xuất lịch trực ra file CSV chuẩn UTF-8 (mở Excel hiển thị tiếng Việt không bị vỡ font)"
+            className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-indigo-600" />
             <span>XUẤT FILE CSV</span>
@@ -465,7 +438,7 @@ export default function ScheduleManager() {
         </div>
       )}
 
-      {/* Week Navigation */}
+      {/* Điều hướng tuần */}
       <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
         <button
           onClick={() => setCurrentDate(addDays(currentDate, -7))}
@@ -488,7 +461,7 @@ export default function ScheduleManager() {
         </button>
       </div>
 
-      {/* Grid lịch trực trong tuần (Thứ 2 đến Thứ 7) */}
+      {/* Grid lịch trực trong tuần */}
       {loading ? (
         <div className="p-12 text-center text-xs text-slate-500 animate-pulse">
           Đang đồng bộ dữ liệu thời gian thực...
@@ -549,7 +522,6 @@ export default function ScheduleManager() {
                                   </span>
                                 )}
 
-                                {/* GHI CHÚ CHỮ NHỎ, IN NGHIÊNG TỪ LPLĐ */}
                                 {schedule.isEditedByLPLD && (
                                   <span className="text-[10px] text-amber-700 italic block mt-1 font-normal">
                                     ✏️ Đã chỉnh sửa bởi LPLĐ
@@ -557,23 +529,25 @@ export default function ScheduleManager() {
                                 )}
                               </div>
 
-                              {/* Nút hành động */}
+                              {/* Nút thao tác ca trực */}
                               <div className="flex items-center gap-1 shrink-0">
                                 {isDone ? (
                                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)] ml-1" title="Đã hoàn thành"></span>
                                 ) : (
                                   <div className="flex items-center">
-                                    {/* Nút Chỉnh sửa (cây bút) - Cả GVCN và LPLĐ đều có quyền */}
-                                    <button
-                                      onClick={() => openEditModal(schedule)}
-                                      className="p-1 text-indigo-600 hover:bg-indigo-100 rounded transition-colors cursor-pointer mr-0.5"
-                                      title="Chỉnh sửa ca trực (Đổi người / Đổi công việc)"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    {/* Sửa ca trực: LPLĐ & Admin */}
+                                    {canManageSchedule && (
+                                      <button
+                                        onClick={() => openEditModal(schedule)}
+                                        className="p-1 text-indigo-600 hover:bg-indigo-100 rounded transition-colors cursor-pointer mr-0.5"
+                                        title="Chỉnh sửa ca trực"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
 
-                                    {/* Nút Xóa (thùng rác) - CHỈ DUY NHẤT ADMIN MỚI CÓ QUYỀN. LPLĐ hoàn toàn bị ẩn */}
-                                    {userRole === 'Admin' && (
+                                    {/* Xóa ca trực: CHỈ ADMIN MỚI CÓ QUYỀN */}
+                                    {isAdmin && (
                                       <button
                                         onClick={() => {
                                           if (confirm(`Xóa ca trực của bạn "${student?.name || 'HS'}"?`)) {
@@ -581,7 +555,7 @@ export default function ScheduleManager() {
                                           }
                                         }}
                                         className="p-1 text-rose-500 hover:bg-rose-100 rounded transition-colors cursor-pointer"
-                                        title="Xóa phân công này (Chỉ GVCN)"
+                                        title="Xóa ca trực này (Chỉ GVCN)"
                                       >
                                         <X className="w-3.5 h-3.5" />
                                       </button>
@@ -591,7 +565,7 @@ export default function ScheduleManager() {
                               </div>
                             </div>
 
-                            {/* Dòng trạng thái & Báo cáo */}
+                            {/* Báo cáo & Ảnh minh chứng */}
                             <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
                               {isDone ? (
                                 <span className="font-bold text-emerald-700 uppercase flex items-center gap-1 truncate">
@@ -635,42 +609,122 @@ export default function ScheduleManager() {
         </div>
       )}
 
-      {/* MODAL CHỈNH SỬA CA TRỰC (DÀNH CHO LPLĐ & ADMIN) */}
+      {/* MODAL TẠO LỊCH TỰ ĐỘNG */}
+      {showGenModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-sm">Tạo Lịch Trực Tự Động</h3>
+              </div>
+              <button onClick={() => setShowGenModal(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Từ ngày</label>
+                  <input
+                    type="date"
+                    value={genStartDate}
+                    onChange={(e) => setGenStartDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Đến ngày</label>
+                  <input
+                    type="date"
+                    value={genEndDate}
+                    onChange={(e) => setGenEndDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Số học sinh / ngày</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={studentsPerDay}
+                  onChange={(e) => setStudentsPerDay(parseInt(e.target.value) || 1)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Chọn các ngày phân công ({genSelectedDates.length} ngày)</label>
+                <div className="max-h-32 overflow-y-auto space-y-1 p-2 bg-slate-50 border rounded-xl">
+                  {allDatesInRange.map(dStr => (
+                    <label key={dStr} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={genSelectedDates.includes(dStr)}
+                        onChange={() => toggleGenDate(dStr)}
+                      />
+                      <span>{dStr} ({format(new Date(dStr), 'EEEE')})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowGenModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
+              >
+                HỦY
+              </button>
+              <button
+                onClick={handleAutoGenerate}
+                disabled={genSelectedDates.length === 0}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs disabled:opacity-50"
+              >
+                TẠO LỊCH
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỈNH SỬA CA TRỰC */}
       {editingSchedule && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex justify-between items-center pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${
-                  userRole === 'Manager' ? 'bg-emerald-600' : 'bg-indigo-600'
+                  isManager ? 'bg-emerald-600' : 'bg-indigo-600'
                 }`}>
                   <Edit2 className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Chỉnh Sửa Ca Trực</h3>
                   <span className="text-[10px] text-slate-500">
-                    {userRole === 'Manager' ? 'Quyền Lớp Phó Lao Động (LPLĐ)' : 'Quyền Giáo Viên Chủ Nhiệm (Admin)'}
+                    {isManager ? 'Quyền Lớp Phó Lao Động (LPLĐ)' : 'Quyền Giáo Viên Chủ Nhiệm (Admin)'}
                   </span>
                 </div>
               </div>
 
-              <button 
-                onClick={() => setEditingSchedule(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded"
-              >
+              <button onClick={() => setEditingSchedule(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Thông báo phân quyền */}
-            {userRole === 'Manager' && (
+            {isManager && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
                 <div className="font-bold flex items-center gap-1.5">
                   <UserCheck className="w-4 h-4 text-amber-600" />
                   <span>Quy định Lớp Phó Lao Động:</span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-amber-800">
-                  Sau khi lưu, ca trực sẽ tự động hiển thị dòng chữ: <em>"✏️ Đã chỉnh sửa bởi LPLĐ"</em> (in nghiêng) để giáo viên và cả lớp dễ dàng đối soát.
+                  Sau khi lưu, ca trực sẽ tự động hiển thị dòng chữ: <em>"✏️ Đã chỉnh sửa bởi LPLĐ"</em>.
                 </p>
               </div>
             )}
@@ -684,7 +738,7 @@ export default function ScheduleManager() {
                   required
                   value={editStudentId}
                   onChange={(e) => setEditStudentId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white outline-none"
                 >
                   <option value="">-- Chọn học sinh --</option>
                   {students.map(s => (
@@ -707,7 +761,7 @@ export default function ScheduleManager() {
                       setEditAssignedTask(e.target.value);
                     }
                   }}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white outline-none focus:border-indigo-500 mb-2"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white outline-none mb-2"
                 >
                   {tasks.map(t => (
                     <option key={t.id} value={t.title}>{t.title} ({t.requiredCount} người)</option>
@@ -722,7 +776,7 @@ export default function ScheduleManager() {
                     value={customTaskInput}
                     onChange={(e) => setCustomTaskInput(e.target.value)}
                     placeholder="Nhập nội dung công việc cụ thể..."
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none"
                   />
                 )}
               </div>
@@ -731,13 +785,13 @@ export default function ScheduleManager() {
                 <button
                   type="button"
                   onClick={() => setEditingSchedule(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl cursor-pointer"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
                 >
                   HỦY
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>LƯU THAY ĐỔI</span>
@@ -748,60 +802,58 @@ export default function ScheduleManager() {
         </div>
       )}
 
-      {/* Modal Báo Cáo Trực Nhật */}
+      {/* MODAL BÁO CÁO TRỰC NHẬT */}
       {selectedSchedule && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Báo cáo trực nhật</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Xác nhận hoàn thành cho: <strong>{selectedSchedule.studentName}</strong>
-              </p>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-sm">Báo Cáo Hoàn Thành Trực Nhật</h3>
+              <button onClick={() => setSelectedSchedule(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {errorMsg && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium rounded-lg">
-                {errorMsg}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nội dung công việc đã làm</label>
+                <input
+                  type="text"
+                  value={taskContent}
+                  onChange={(e) => setTaskContent(e.target.value)}
+                  placeholder="Ví dụ: Đã quét lớp, lau bảng và đổ rác sạch sẽ..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none"
+                />
               </div>
-            )}
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Nội dung công việc
-              </label>
-              <select
-                value={taskContent}
-                onChange={(e) => setTaskContent(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 outline-none focus:border-indigo-500"
-              >
-                {tasks.map(t => (
-                  <option key={t.id} value={t.title}>{t.title}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Tải ảnh lên */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-700 uppercase">
-                  Ảnh minh chứng (Tối đa 5 ảnh)
-                </label>
-                {settings.sheetConfig?.appsScriptImageUrl && (
-                  <span className="text-[10px] text-teal-700 font-semibold flex items-center gap-1">
-                    <HardDrive className="w-3 h-3 text-teal-600" />
-                    <span>Google Drive</span>
-                  </span>
-                )}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Ảnh minh chứng (Tối đa 5 ảnh)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  ref={fileInputRef}
+                  onChange={handlePhotoUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl text-xs font-bold text-slate-600 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Camera className="w-4 h-4 text-indigo-600" />
+                  <span>{photoUrls.length > 0 ? `Đã chọn ${photoUrls.length} ảnh (Bấm để thêm)` : 'Tải ảnh chụp thực tế'}</span>
+                </button>
               </div>
 
               {photoUrls.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {photoUrls.map((p, i) => (
-                    <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200 group">
-                      <img src={p} alt="Minh chứng" className="w-full h-full object-cover" />
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {photoUrls.map((url, i) => (
+                    <div key={i} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200">
+                      <img src={url} alt={`Minh chứng ${i + 1}`} className="w-full h-full object-cover" />
                       <button
                         onClick={() => setPhotoUrls(prev => prev.filter((_, idx) => idx !== i))}
-                        className="absolute top-0 right-0 bg-rose-600 text-white p-1 rounded-bl"
+                        className="absolute top-0 right-0 bg-rose-600 text-white p-0.5 rounded-bl"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -810,191 +862,72 @@ export default function ScheduleManager() {
                 </div>
               )}
 
-              {photoUrls.length < 5 && (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-xl text-slate-600 hover:text-indigo-600 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Chụp hoặc tải ảnh lên</span>
-                </button>
+              {errorMsg && (
+                <p className="text-xs text-rose-600 font-medium">{errorMsg}</p>
               )}
-
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                multiple
-                onChange={handlePhotoUpload}
-                className="hidden"
-              />
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                type="button"
                 onClick={() => setSelectedSchedule(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl cursor-pointer"
-              >
-                HỦY
-              </button>
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={submitCompletion}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer"
-              >
-                {isSubmitting ? 'ĐANG GỬI...' : 'GỬI BÁO CÁO'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Tạo Lịch Tự Động */}
-      {showGenModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 flex flex-col animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">Tạo Lịch Tự Động</h3>
-              <button onClick={() => setShowGenModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-4 text-[11px] text-indigo-900 leading-relaxed">
-              <span className="font-bold block mb-0.5">⚖️ Thuật toán bù trừ công bằng:</span>
-              Tự động chọn các bạn có tổng số lần trực ít nhất. Đối soát lịch sử để luân chuyển công việc theo các nhiệm vụ đã cấu hình.
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Từ ngày</label>
-                <input 
-                  type="date" 
-                  value={genStartDate} 
-                  onChange={e => setGenStartDate(e.target.value)} 
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2 outline-none" 
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Đến ngày</label>
-                <input 
-                  type="date" 
-                  value={genEndDate} 
-                  onChange={e => setGenEndDate(e.target.value)} 
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2 outline-none" 
-                />
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Số HS mỗi ngày</label>
-              <input 
-                type="number" 
-                min="1" 
-                max="10" 
-                value={studentsPerDay} 
-                onChange={e => setStudentsPerDay(Number(e.target.value))} 
-                className="w-full text-xs border border-slate-300 rounded-lg p-2 outline-none font-bold" 
-              />
-            </div>
-
-            <div className="mb-5">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Chọn các ngày phân công</label>
-              <div className="max-h-40 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl p-2 grid grid-cols-2 gap-2">
-                {allDatesInRange.map(dStr => {
-                  const isSelected = genSelectedDates.includes(dStr);
-                  const dayName = format(new Date(dStr), 'EEEE');
-                  const vnDayMap: Record<string, string> = { 'Monday': 'T2', 'Tuesday': 'T3', 'Wednesday': 'T4', 'Thursday': 'T5', 'Friday': 'T6', 'Saturday': 'T7', 'Sunday': 'CN' };
-                  return (
-                    <label key={dStr} className="flex items-center space-x-2 text-xs cursor-pointer bg-white p-2 border border-slate-200 rounded-lg">
-                      <input 
-                        type="checkbox" 
-                        checked={isSelected} 
-                        onChange={() => toggleGenDate(dStr)} 
-                        className="rounded text-indigo-600" 
-                      />
-                      <span className="font-medium text-slate-700">{vnDayMap[dayName]} - {format(new Date(dStr), 'dd/MM')}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button 
-                onClick={() => setShowGenModal(false)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
               >
                 HỦY
               </button>
-              <button 
-                onClick={handleAutoGenerate}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
+              <button
+                onClick={submitCompletion}
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs disabled:opacity-50"
               >
-                TẠO LỊCH NGAY
+                {isSubmitting ? 'ĐANG GỬI...' : 'HOÀN THÀNH'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Xem ảnh phóng to */}
+      {/* MODAL XEM ẢNH TRỰC NHẬT */}
       {viewingPhoto && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-[60]" onClick={() => setViewingPhoto(null)}>
-          <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setViewingPhoto(null)} className="absolute -top-10 right-0 text-white font-bold p-2 hover:text-gray-300 cursor-pointer">ĐÓNG [X]</button>
-            <img src={viewingPhoto.urls[viewingPhoto.index]} alt="Xác thực" className="max-w-full max-h-[85vh] object-contain rounded shadow-2xl" />
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl relative space-y-3">
+            <button
+              onClick={() => setViewingPhoto(null)}
+              className="absolute top-3 right-3 p-1 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
             
+            <h3 className="font-bold text-slate-800 text-sm">Ảnh Minh Chứng Trực Nhật</h3>
+
+            <div className="w-full h-72 bg-black rounded-xl overflow-hidden flex items-center justify-center">
+              <img
+                src={viewingPhoto.urls[viewingPhoto.index]}
+                alt="Minh chứng"
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+
             {viewingPhoto.urls.length > 1 && (
-              <div className="absolute top-1/2 -translate-y-1/2 w-full flex justify-between px-4">
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setViewingPhoto(prev => prev ? { ...prev, index: (prev.index - 1 + prev.urls.length) % prev.urls.length } : null);
-                  }}
-                  className="bg-black/50 text-white p-2 rounded-full hover:bg-black/70 cursor-pointer"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setViewingPhoto(prev => prev ? { ...prev, index: (prev.index + 1) % prev.urls.length } : null);
-                  }}
-                  className="bg-black/50 text-white p-2 rounded-full hover:bg-black/70 cursor-pointer"
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
+              <div className="flex justify-center gap-2">
+                {viewingPhoto.urls.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setViewingPhoto(prev => prev ? { ...prev, index: i } : null)}
+                    className={`w-2.5 h-2.5 rounded-full ${i === viewingPhoto.index ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                  />
+                ))}
               </div>
             )}
-            
-            <div className="absolute bottom-4 flex flex-col items-center gap-2">
-              {viewingPhoto.urls.length > 1 && (
-                <div className="bg-black/60 text-white text-xs px-3 py-1 rounded-full font-mono">
-                  {viewingPhoto.index + 1} / {viewingPhoto.urls.length}
-                </div>
-              )}
-              {viewingPhoto.time && (
-                <div className="bg-black/70 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full font-mono border border-white/10">
-                  {format(new Date(viewingPhoto.time), 'dd/MM/yyyy HH:mm:ss')}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
 
-      {/* Modal Đồng Bộ Google Sheets & Lưu Trữ Drive */}
+      {/* MODAL ĐỒNG BỘ GOOGLE SHEETS */}
       <GoogleSheetSyncModal
         isOpen={isSheetModalOpen}
         onClose={() => setIsSheetModalOpen(false)}
-        settings={settings}
         schedules={schedules}
         students={students}
-        tasks={tasks}
       />
     </div>
   );
