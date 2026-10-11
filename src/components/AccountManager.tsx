@@ -1,8 +1,5 @@
-// Lấy vai trò từ localStorage hoặc State hệ thống
-const userRole = localStorage.getItem('userRole'); 
-const isAdmin = userRole === 'Admin'; // Đúng là Admin mới bằng true
-
 import React, { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { 
   Shield, UserCircle, Plus, Trash2, Check, X, AlertTriangle, 
   Mail, Users, Save, CheckCircle2, AlertCircle, Clock, 
@@ -17,6 +14,15 @@ import {
 } from '../services/firestoreService';
 
 export default function AccountManager() {
+  // Lấy vai trò người dùng từ localStorage
+  const userRole = localStorage.getItem('userRole');
+  const isAdmin = userRole === 'Admin';
+
+  // BẢO VỆ ROUTE TRỰC TIẾP: Nếu không phải Admin (GVCN), lập tức chuyển hướng về Bảng lịch trực
+  if (!isAdmin) {
+    return <Navigate to="/dashboard/schedule" replace />;
+  }
+
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [loading, setLoading] = useState(true);
   
@@ -33,7 +39,7 @@ export default function AccountManager() {
   const [newManagerName, setNewManagerName] = useState('');
   const [newManagerEmail, setNewManagerEmail] = useState('');
   
-  // Modal xác nhận xóa email (thay thế window.confirm để không bị chặn trong iframe)
+  // Modal xác nhận xóa email
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
     type: 'admin' | 'manager';
@@ -636,7 +642,7 @@ export default function AccountManager() {
         </button>
       </div>
 
-      {/* MODAL 1: XÁC NHẬN XÓA EMAIL (Thay thế confirm() browser) */}
+      {/* MODAL 1: XÁC NHẬN XÓA EMAIL */}
       {deleteConfirm?.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
@@ -762,6 +768,7 @@ export default function AccountManager() {
         </div>
       )}
 
+      {/* THÔNG BÁO RESET THÀNH CÔNG */}
       {resetSuccess && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center">
